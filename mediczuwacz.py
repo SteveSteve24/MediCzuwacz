@@ -117,7 +117,8 @@ class AppointmentFinder:
             )
             return {}
 
-    def find_appointments(self, region, specialty, clinic, start_date, end_date, language, doctor=None):
+
+    def find_appointments(self, search_type, region, specialty, clinic, start_date, end_date, language, doctor=None):
         today = datetime.date.today()
         if start_date < today:
             start_date = today
@@ -129,7 +130,7 @@ class AppointmentFinder:
             "Page": 1,
             "PageSize": 5000,
             "StartTime": start_date.isoformat(),
-            "SlotSearchType": 0,
+            "SlotSearchType": search_type,
             "VisitType": "Center",
         }
 
@@ -230,6 +231,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True, help="Command to execute")
 
     find_appointment = subparsers.add_parser("find-appointment", help="Find appointment")
+    find_appointment.add_argument("--search-type", required=False, default="0", type=str, help="Search type")
     find_appointment.add_argument("-r", "--region", required=True, type=int, help="Region ID")
     find_appointment.add_argument("-s", "--specialty", required=True, type=int, action="extend", nargs="+", help="Specialty ID",)
     find_appointment.add_argument("-c", "--clinic", required=False, type=int, help="Clinic ID")
@@ -274,7 +276,7 @@ def main():
     
         if args.command == "find-appointment":
             # Find appointments
-            appointments = finder.find_appointments(args.region, args.specialty, args.clinic, args.date, args.enddate, args.language, args.doctor)
+            appointments = finder.find_appointments(args.search_type, args.region, args.specialty, args.clinic, args.date, args.enddate, args.language, args.doctor)
 
             # Find new appointments
             if previous_appointments:
