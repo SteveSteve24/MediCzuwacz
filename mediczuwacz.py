@@ -117,7 +117,11 @@ class AppointmentFinder:
             )
             return {}
 
+
     def find_appointments(self, search_type, region, specialty, clinic, start_date, end_date, language, doctor=None):
+        today = datetime.date.today()
+        if start_date < today:
+            start_date = today
         appointment_url = "https://api-gateway-online24.medicover.pl/appointments/api/search-appointments/slots"
         params = {
             "RegionIds": region,
