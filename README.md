@@ -62,6 +62,21 @@ docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 112 -l 60
 docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 112 -i 10
 ```
 
+#### Example 7: Search for an examination / diagnostic procedure (USG jamy brzusznej - 521)
+Use `--search-type` param to search for appointments for a diagnostic procedure:
+```bash
+docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 521 --search-type DiagnosticProcedure
+```
+Note that some examinations may be classified the same as regular doctor appointments (e.g. blood tests).
+
+The known search types are (`0` is used when `--search-type` is not specified):
+
+- `Standard` / `0` - consultations and dentistry
+- `DiagnosticProcedure` / `2` - examinations
+
+Search types have a numeric and text values. The current web UI uses the text values.
+When trying to use the numeric values instead, the UI wrongfully shows the visits as paid even when they're included in your medical care package. This seems to be the only difference between numeric and text value - they appear to return the same appointments.
+
 ---
 
 ## How to Know IDs?
