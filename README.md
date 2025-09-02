@@ -225,6 +225,9 @@ docker run --rm -v $(pwd)/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env med
 ### v0.5 - 2025-04-23
 - Added `list-filters clinics` support.
 
+### v0.6 - 2025-09-02
+- Added search type, start date validation, and examination examples (by Jackenmen).
+
 ---
 
 ## Acknowledgements
