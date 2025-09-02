@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='mediczuwacz',
-    version='0.5',
+    version='0.6',
     py_modules=['mediczuwacz'],
     include_package_data=True,
     install_requires=[
