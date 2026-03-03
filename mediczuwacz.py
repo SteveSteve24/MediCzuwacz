@@ -1,31 +1,30 @@
 #!/usr/bin/python3
 
+import argparse
 import base64
+import datetime
 import hashlib
-import json
 import os
 import random
-import re
 import string
+import time
 import uuid
-import argparse
-from urllib.parse import urlparse
-import datetime
+from urllib.parse import parse_qs, urlparse
+
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from fake_useragent import UserAgent
-from future.backports.urllib.parse import parse_qs
-from rich import print_json, print
+from rich import print
 from rich.console import Console
-import time
 
-from medihunter_notifiers import pushbullet_notify, pushover_notify, telegram_notify, xmpp_notify, gotify_notify
+from medihunter_notifiers import gotify_notify, pushbullet_notify, pushover_notify, telegram_notify, xmpp_notify
 
 console = Console()
 
 # Load environment variables
 load_dotenv()
+
 
 class Authenticator:
     def __init__(self, username, password):
@@ -84,8 +83,29 @@ class Authenticator:
         response = self.session.post(next_url, data=login_data, headers=self.headers, allow_redirects=False)
         next_url = response.headers.get("Location")
 
+        # Step 3.5: Handle MFA gate — skip the "enable MFA" prompt
+        if next_url and "MfaGate" in next_url:
+            mfa_url = f"{login_url}{next_url}" if next_url.startswith("/") else next_url
+            response = self.session.get(mfa_url, headers=self.headers, allow_redirects=False)
+            soup = BeautifulSoup(response.content, "html.parser")
+            mfa_csrf_input = soup.find("input", {"name": "__RequestVerificationToken"})
+            mfa_csrf_token = mfa_csrf_input.get("value") if mfa_csrf_input else None
+            return_url_input = soup.find("input", {"name": "Input.ReturnUrl"})
+            return_url_value = return_url_input.get("value") if return_url_input else f"/connect/authorize/callback{auth_params}"
+            mfa_data = {
+                "__RequestVerificationToken": mfa_csrf_token,
+                "Input.ReturnUrl": return_url_value,
+            }
+            skip_url = f"{login_url}/Account/MfaGate?handler=SkipMfaGate"
+            response = self.session.post(skip_url, data=mfa_data, headers=self.headers, allow_redirects=False)
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                console.print(f"[bold red]MfaGate skip failed {response.status_code}[/bold red]\n{response.text[:500]}")
+                raise ValueError(f"MfaGate POST failed with status {response.status_code}")
+            next_url = response.headers.get("Location")
+
         # Step 4: Fetch authorization code
-        response = self.session.get(f"{login_url}{next_url}", headers=self.headers, allow_redirects=False)
+        step4_url = f"{login_url}{next_url}" if next_url and next_url.startswith("/") else next_url
+        response = self.session.get(step4_url, headers=self.headers, allow_redirects=False)
         next_url = response.headers.get("Location")
         code = parse_qs(urlparse(next_url).query)["code"][0]
 
@@ -102,6 +122,7 @@ class Authenticator:
         self.tokenA = tokens["access_token"]
         self.headers["Authorization"] = f"Bearer {self.tokenA}"
 
+
 class AppointmentFinder:
     def __init__(self, session, headers):
         self.session = session
@@ -116,7 +137,6 @@ class AppointmentFinder:
                 f"[bold red]Error {response.status_code}[/bold red]: {response.text}"
             )
             return {}
-
 
     def find_appointments(self, search_type, region, specialty, clinic, start_date, end_date, language, doctor=None):
         today = datetime.date.today()
@@ -178,11 +198,11 @@ class Notifier:
             doctor_languages = appointment.get("doctorLanguages", [])
             languages = ", ".join([lang.get("name", "N/A") for lang in doctor_languages]) if doctor_languages else "N/A"
             message = (
-                f"Date: {date}\n"
-                f"Clinic: {clinic}\n"
-                f"Doctor: {doctor}\n"
-                f"Languages: {languages}\n" +
-                f"Specialty: {specialty}\n" + "-" * 50
+                    f"Date: {date}\n"
+                    f"Clinic: {clinic}\n"
+                    f"Doctor: {doctor}\n"
+                    f"Languages: {languages}\n" +
+                    f"Specialty: {specialty}\n" + "-" * 50
             )
             messages.append(message)
         return "\n".join(messages)
@@ -255,7 +275,6 @@ def main():
     clinics.add_argument("-r", "--region", required=True, type=int, help="Region ID")
     clinics.add_argument("-s", "--specialty", required=True, type=int, nargs="+", help="Specialty ID(s)")
 
-
     args = parser.parse_args()
 
     username = os.environ.get("MEDICOVER_USER")
@@ -271,9 +290,9 @@ def main():
         # Authenticate
         auth = Authenticator(username, password)
         auth.login()
-    
+
         finder = AppointmentFinder(auth.session, auth.headers)
-    
+
         if args.command == "find-appointment":
             # Find appointments
             appointments = finder.find_appointments(args.search_type, args.region, args.specialty, args.clinic, args.date, args.enddate, args.language, args.doctor)
@@ -285,10 +304,10 @@ def main():
                 new_appointments = appointments
 
             previous_appointments = appointments
-    
+
             # Display appointments
             display_appointments(new_appointments)
-    
+
             # Send notification if appointments are found
             if new_appointments:
                 Notifier.send_notification(new_appointments, args.notification, args.title)
@@ -297,20 +316,19 @@ def main():
                 # Sleep and repeat
                 time.sleep(args.interval * 60)
                 continue
-    
+
         elif args.command == "list-filters":
-    
+
             if args.filter_type in ("doctors", "clinics"):
                 filters = finder.find_filters(args.region, args.specialty)
             else:
                 filters = finder.find_filters()
 
-    
             for r in filters[args.filter_type]:
                 print(f"{r['id']} - {r['value']}")
 
-
         break
+
 
 if __name__ == "__main__":
     main()
