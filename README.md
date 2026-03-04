@@ -228,6 +228,9 @@ docker run --rm -v $(pwd)/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env med
 ### v0.6 - 2025-09-02
 - Added search type, start date validation, and examination examples (by Jackenmen).
 
+### v0.7 - 2026-03-04
+- Handle MfaGate redirect during login when MFA prompt appears (works only if MFA is disabled) (by albertlis).
+ 
 ---
 
 ## Acknowledgements
