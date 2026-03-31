@@ -21,51 +21,65 @@ Easily track when your Medicover doctor has open appointments.
     ```bash
     docker build --rm -t mediczuwacz .
     ```
+4. Create a directory for persistent cookies and device ID (each `MEDICOVER_USER` gets its own file automatically):
+    ```bash
+    mkdir -p ~/.mediczuwacz
+    ```
+
+---
+
+## Two-Factor Authentication (2FA)
+
+Medicover requires 2FA. You must first configure your preferred 2FA method (e.g. email or SMS) in the Medicover Online web portal before using this tool.
+
+On the first run, you will be prompted to enter a verification code. After entering the code, the device is marked as trusted and session cookies are saved — subsequent runs will skip 2FA automatically.
 
 ---
 
 ## Usage
 
+All `docker run` commands below include `-v ~/.mediczuwacz:/data` to persist cookies and device ID between runs.
+
 ### Run with Parameters
 #### Example 1: Search for an Appointment
 For a pediatrician (`Pediatra`) in Warsaw:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11"
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11"
 ```
 
 #### Example 2: Search and Send Notifications
 To search and send notifications via Gotify:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -n gotify -t "Pediatra"
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -n gotify -t "Pediatra"
 ```
 
 #### Example 3: Search for an Appointment in particular Clinic (Łukiska - 49284)
 To search and send notifications via Gotify:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -c 49284 -n gotify -t "Pediatra"
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -c 49284 -n gotify -t "Pediatra"
 ```
 
 #### Example 4: Search for a Specific Doctor and set End date
 Use `-d` param:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132 -d 394 -f "2024-12-16" -e "2024-12-19"
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132 -d 394 -f "2024-12-16" -e "2024-12-19"
 ```
 
 #### Example 5: Search for a Dental Hygienist who speaks ukrainian
 Use `-l` param:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 112 -l 60
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 112 -l 60
 ```
 
 #### Example 6: start once and check for new Appointments every 10 minutes
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 112 -i 10
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 112 -i 10
 ```
 
 #### Example 7: Search for an examination / diagnostic procedure (USG jamy brzusznej - 521)
 Use `--search-type` param to search for appointments for a diagnostic procedure:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 521 --search-type DiagnosticProcedure
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 521 --search-type DiagnosticProcedure
 ```
 Note that some examinations may be classified the same as regular doctor appointments (e.g. blood tests).
 
@@ -86,22 +100,22 @@ Run the following commands:
 
 - To list available regions:
   ```bash
-  docker run --rm --env-file=.env mediczuwacz list-filters regions
+  docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz list-filters regions
   ```
 
 - To list available specialties:
   ```bash
-  docker run --rm --env-file=.env mediczuwacz list-filters specialties
+  docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz list-filters specialties
   ```
 
 - To list clinics for a specific region and specialty:
   ```bash
-  docker run --rm --env-file=.env mediczuwacz list-filters clinics -r 204 -s 132
+  docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz list-filters clinics -r 204 -s 132
   ```
 
 - To list doctors for a specific region and specialty:
   ```bash
-  docker run --rm --env-file=.env mediczuwacz list-filters doctors -r 204 -s 132
+  docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz list-filters doctors -r 204 -s 132
   ```
 
 ---
@@ -122,7 +136,7 @@ NOTIFIERS_TELEGRAM_TOKEN=mySecretToken
 ### Step 3: Run the Command
 Run the following command to send Telegram notifications:
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -n telegram -t "Pediatra"
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -n telegram -t "Pediatra"
 ```
 
 ---
@@ -133,7 +147,7 @@ Create a script named `run_mediczuwacz.sh`:
 ```bash
 #!/bin/bash
 cd /home/projects/
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -n gotify -t "Pediatra"
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132 -f "2024-12-11" -n gotify -t "Pediatra"
 ```
 Make the script executable:
 ```bash
@@ -160,7 +174,7 @@ Create a new file, e.g., `check_appointments_windows.bat`, to run the Docker com
 ```batch
 @echo off
 :loop
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 132
+docker run --rm --env-file=.env -v %USERPROFILE%\.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132
 timeout 600
 goto loop
 ```
@@ -184,7 +198,7 @@ This command starts a container that checks for new appointments every 25 minute
 Use the `-i` parameter to set the interval (in minutes):
 
 ```bash
-docker run --rm --env-file=.env mediczuwacz find-appointment -r 204 -s 112 -i 25
+docker run --rm --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 112 -i 25
 ```
 
 
@@ -198,12 +212,12 @@ Example:
 
 Windows
 ```
-docker run --rm -v %cd%/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env mediczuwacz find-appointment -r 204 -s 132
+docker run --rm -v %cd%/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env -v %USERPROFILE%\.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132
 ```
 
 Linux
 ```
-docker run --rm -v $(pwd)/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env mediczuwacz find-appointment -r 204 -s 132
+docker run --rm -v $(pwd)/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132
 ```
 
 ---
@@ -230,7 +244,12 @@ docker run --rm -v $(pwd)/mediczuwacz.py:/app/mediczuwacz.py --env-file=.env med
 
 ### v0.7 - 2026-03-04
 - Handle MfaGate redirect during login when MFA prompt appears (works only if MFA is disabled) (by albertlis).
- 
+
+### v0.8 - 2026-03-31 (by vitgorbunov)
+- Full 2FA support: enter verification code once, device is marked as trusted via persistent cookies.
+- Session reuse: saved cookies allow subsequent runs to skip login and 2FA entirely.
+- Rate limit detection: clear error message when one-time code sending limit is exceeded.
+
 ---
 
 ## Acknowledgements

@@ -4,11 +4,13 @@ import argparse
 import base64
 import datetime
 import hashlib
+import http.cookiejar
 import os
 import random
 import string
 import time
 import uuid
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -26,11 +28,16 @@ console = Console()
 load_dotenv()
 
 
+COOKIE_DIR = Path("/data")
+
+
 class Authenticator:
     def __init__(self, username, password):
         self.username = username
         self.password = password
+        self.cookie_file = COOKIE_DIR / f"{username}_cookies"
         self.session = requests.Session()
+        self.load_cookies()
         self.headers = {
             "User-Agent": UserAgent().random,
             "Accept": "application/json",
@@ -38,13 +45,105 @@ class Authenticator:
         }
         self.tokenA = None
 
+    def load_cookies(self):
+        jar = http.cookiejar.MozillaCookieJar(str(self.cookie_file))
+        if self.cookie_file.exists():
+            try:
+                jar.load(ignore_discard=True, ignore_expires=True)
+                console.print(f"[dim]Loaded {len(jar)} cookies for MEDICOVER_USER[/dim]")
+            except Exception as e:
+                console.print(f"[yellow]Warning: could not load cookies: {e}[/yellow]")
+        self.session.cookies = jar
+
+    def save_cookies(self):
+        try:
+            self.cookie_file.parent.mkdir(parents=True, exist_ok=True)
+            self.session.cookies.save(ignore_discard=True, ignore_expires=True)
+            console.print(f"[dim]Saved cookies for MEDICOVER_USER[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not save cookies: {e}[/yellow]")
+
+    def get_device_id(self):
+        device_file = self.cookie_file.with_suffix(".device_id")
+        if device_file.exists():
+            return device_file.read_text().strip()
+        device_id = str(uuid.uuid4())
+        device_file.parent.mkdir(parents=True, exist_ok=True)
+        device_file.write_text(device_id)
+        console.print(f"[dim]Generated new device_id: {device_id}[/dim]")
+        return device_id
+
     def generate_code_challenge(self, input):
         sha256 = hashlib.sha256(input.encode("utf-8")).digest()
         return base64.urlsafe_b64encode(sha256).decode("utf-8").rstrip("=")
 
+    def exchange_code(self, login_url, redirect_uri, code, code_verifier):
+        token_data = {
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code": code,
+            "code_verifier": code_verifier,
+            "client_id": "web",
+        }
+        response = self.session.post(f"{login_url}/connect/token", data=token_data, headers=self.headers)
+        tokens = response.json()
+        self.tokenA = tokens["access_token"]
+        self.headers["Authorization"] = f"Bearer {self.tokenA}"
+        self.save_cookies()
+
+    def handle_mfa(self, response, mfa_url, login_url, auth_params):
+        soup = BeautifulSoup(response.content, "html.parser")
+        # Check for errors on the MFA page before proceeding
+        error_div = soup.find("div", class_="alert-error")
+        if error_div:
+            error_msg = error_div.get_text(strip=True)
+            console.print(f"[bold red]MFA error: {error_msg}[/bold red]")
+            raise ValueError(f"MFA error: {error_msg}")
+
+        # Collect all hidden fields (CSRF token, return URL, etc.)
+        form = soup.find("form")
+        if not form:
+            console.print(f"[bold red]MFA page has no form.[/bold red]\n{response.text[:1000]}")
+            raise ValueError("Could not find MFA form on the page")
+
+        form_action = form.get("action", "")
+        post_url = f"{login_url}{form_action}" if form_action.startswith("/") else (form_action or mfa_url)
+
+        form_data = {}
+        for hidden in form.find_all("input", {"type": "hidden"}):
+            name = hidden.get("name")
+            if name:
+                form_data[name] = hidden.get("value", "")
+
+        # Prompt for 2FA code
+        console.print(f"[bold yellow]2FA code required (channel: {form_data.get('Input.Channel', 'unknown')})[/bold yellow]")
+        code = input("Enter your 2FA code: ").strip()
+        if not code:
+            raise ValueError("No 2FA code provided")
+
+        # Set the combined code into the hidden field and mark device as trusted
+        form_data["Input.MfaCode"] = code
+        form_data["Input.IsTrustedDevice"] = "true"
+        form_data["Input.DeviceName"] = "Chrome"
+        form_data["Input.Button"] = "confirm"
+
+        response = self.session.post(post_url, data=form_data, headers=self.headers, allow_redirects=False)
+
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            # Dump the response page to understand the error
+            error_soup = BeautifulSoup(response.content, "html.parser")
+            errors = error_soup.find_all(class_=lambda c: c and ("error" in c.lower() or "validation" in c.lower() or "alert" in c.lower())) if error_soup else []
+            console.print(f"[bold red]MFA verification failed ({response.status_code})[/bold red]")
+            for e in errors:
+                console.print(f"[red]{e.get_text(strip=True)}[/red]")
+            raise ValueError(f"MFA verification failed with status {response.status_code}")
+
+        console.print("[green]2FA verified successfully[/green]")
+        return response.headers.get("Location")
+
     def login(self):
         state = "".join(random.choices(string.ascii_lowercase + string.digits, k=32))
-        device_id = str(uuid.uuid4())
+        device_id = self.get_device_id()
         code_verifier = "".join(uuid.uuid4().hex for _ in range(3))
         code_challenge = self.generate_code_challenge(code_verifier)
         epoch_time = int(time.time()) * 1000
@@ -61,6 +160,13 @@ class Authenticator:
         # Step 1: Initialize login
         response = self.session.get(f"{login_url}/connect/authorize{auth_params}", headers=self.headers, allow_redirects=False)
         next_url = response.headers.get("Location")
+
+        # Check if step 1 already returned an auth code (session still valid via cookies)
+        if next_url and "code=" in next_url:
+            console.print("[green]Already authenticated via saved session[/green]")
+            code = parse_qs(urlparse(next_url).query)["code"][0]
+            self.exchange_code(login_url, oidc_redirect, code, code_verifier)
+            return
 
         # Step 2: Extract CSRF token
         response = self.session.get(next_url, headers=self.headers, allow_redirects=False)
@@ -82,26 +188,17 @@ class Authenticator:
         }
         response = self.session.post(next_url, data=login_data, headers=self.headers, allow_redirects=False)
         next_url = response.headers.get("Location")
-
-        # Step 3.5: Handle MFA gate — skip the "enable MFA" prompt
-        if next_url and "MfaGate" in next_url:
+        # Step 3.5: Handle MFA
+        if next_url and "/Mfa" in next_url:
             mfa_url = f"{login_url}{next_url}" if next_url.startswith("/") else next_url
             response = self.session.get(mfa_url, headers=self.headers, allow_redirects=False)
-            soup = BeautifulSoup(response.content, "html.parser")
-            mfa_csrf_input = soup.find("input", {"name": "__RequestVerificationToken"})
-            mfa_csrf_token = mfa_csrf_input.get("value") if mfa_csrf_input else None
-            return_url_input = soup.find("input", {"name": "Input.ReturnUrl"})
-            return_url_value = return_url_input.get("value") if return_url_input else f"/connect/authorize/callback{auth_params}"
-            mfa_data = {
-                "__RequestVerificationToken": mfa_csrf_token,
-                "Input.ReturnUrl": return_url_value,
-            }
-            skip_url = f"{login_url}/Account/MfaGate?handler=SkipMfaGate"
-            response = self.session.post(skip_url, data=mfa_data, headers=self.headers, allow_redirects=False)
-            if response.status_code not in {301, 302, 303, 307, 308}:
-                console.print(f"[bold red]MfaGate skip failed {response.status_code}[/bold red]\n{response.text[:500]}")
-                raise ValueError(f"MfaGate POST failed with status {response.status_code}")
-            next_url = response.headers.get("Location")
+
+            # If the server already trusts this device, it redirects immediately
+            if response.status_code in {301, 302, 303, 307, 308}:
+                console.print("[green]Device is trusted — MFA skipped[/green]")
+                next_url = response.headers.get("Location")
+            else:
+                next_url = self.handle_mfa(response, mfa_url, login_url, auth_params)
 
         # Step 4: Fetch authorization code
         step4_url = f"{login_url}{next_url}" if next_url and next_url.startswith("/") else next_url
@@ -110,17 +207,7 @@ class Authenticator:
         code = parse_qs(urlparse(next_url).query)["code"][0]
 
         # Step 5: Exchange code for tokens
-        token_data = {
-            "grant_type": "authorization_code",
-            "redirect_uri": oidc_redirect,
-            "code": code,
-            "code_verifier": code_verifier,
-            "client_id": "web",
-        }
-        response = self.session.post(f"{login_url}/connect/token", data=token_data, headers=self.headers)
-        tokens = response.json()
-        self.tokenA = tokens["access_token"]
-        self.headers["Authorization"] = f"Bearer {self.tokenA}"
+        self.exchange_code(login_url, oidc_redirect, code, code_verifier)
 
 
 class AppointmentFinder:
