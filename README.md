@@ -32,13 +32,19 @@ Easily track when your Medicover doctor has open appointments.
 
 Medicover requires 2FA. You must first configure your preferred 2FA method (e.g. email or SMS) in the Medicover Online web portal before using this tool.
 
-On the first run, you will be prompted to enter a verification code. After entering the code, the device is marked as trusted and session cookies are saved — subsequent runs will skip 2FA automatically.
+On the first run, you will be prompted to enter a verification code. Use the `-it` flag to enable interactive input:
+
+```bash
+docker run --rm -it --env-file=.env -v ~/.mediczuwacz:/data mediczuwacz find-appointment -r 204 -s 132
+```
+
+After entering the code, the device is marked as trusted and session cookies are saved — subsequent runs will skip 2FA automatically and no longer require `-it`.
 
 ---
 
 ## Usage
 
-All `docker run` commands below include `-v ~/.mediczuwacz:/data` to persist cookies and device ID between runs.
+All `docker run` commands below include `-v ~/.mediczuwacz:/data` to persist cookies and device ID between runs. Add `-it` if 2FA has not yet been completed.
 
 ### Run with Parameters
 #### Example 1: Search for an Appointment

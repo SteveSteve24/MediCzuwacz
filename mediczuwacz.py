@@ -117,7 +117,11 @@ class Authenticator:
 
         # Prompt for 2FA code
         console.print(f"[bold yellow]2FA code required (channel: {form_data.get('Input.Channel', 'unknown')})[/bold yellow]")
-        code = input("Enter your 2FA code: ").strip()
+        try:
+            code = input("Enter your 2FA code: ").strip()
+        except EOFError:
+            console.print("[bold red]Cannot read 2FA code. Run with -it flag: docker run --rm -it ...[/bold red]")
+            raise SystemExit(1)
         if not code:
             raise ValueError("No 2FA code provided")
 
